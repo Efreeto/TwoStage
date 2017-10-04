@@ -49,6 +49,7 @@
 									<listOptionValue builtIn="false" value="opencv_highgui"/>
 									<listOptionValue builtIn="false" value="opencv_imgproc"/>
 									<listOptionValue builtIn="false" value="opencv_imgcodecs"/>
+									<listOptionValue builtIn="false" value="opencv_objdetect"/>
 									<listOptionValue builtIn="false" value="caffe-d"/>
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.cpp.linker.input.436381707" superClass="cdt.managedbuild.tool.gnu.cpp.linker.input">

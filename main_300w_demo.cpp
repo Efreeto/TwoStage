@@ -1,7 +1,7 @@
 #include <caffe/caffe.hpp>
-#include <opencv2/core/core.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/objdetect.hpp>
 
 #include <fstream>
 #include <string>
@@ -9,6 +9,9 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+
+//#define REALIGN_PTS	// uncomment to realign points with [1:17 27:31 38:42 18:26 32:37 43:68] to measure accuracy
 
 using namespace caffe;  // NOLINT(build/namespaces)
 using std::string;
@@ -16,30 +19,25 @@ using std::string;
 void WrapInputLayer(shared_ptr<Net<double> > net_, std::vector<cv::Mat>* input_channels);
 void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img, std::vector<cv::Mat>* input_channels);
 template <typename Dtype>
-string OutputOfLayerByName(shared_ptr<Net<Dtype> > net_, const string& layer_name);
+string OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name);
 std::vector<string> TextRead(string filename);
 
 int main(int argc, char** argv) {
-//  if (argc != 6) {
-//    std::cerr << "Usage: " << argv[0]
-//              << " deploy.prototxt network.caffemodel"
-//              << " mean.binaryproto labels.txt img.jpg" << std::endl;
-//    return 1;
-//  }
-//
-//  ::google::InitGoogleLogging(argv[0]);
+  if (argc != 5) {
+	  std::cerr << "Usage: " << argv[0]
+			 << " deploy.prototxt network.caffemodel"
+			 << " imglist.txt test_mode" << std::endl;
+	  return 1;
+  }
 
-//  string model_file   = argv[1];
-//  string trained_file = argv[2];
-//  string mean_file    = argv[3];
-//  string label_file   = argv[4];
+  ::google::InitGoogleLogging(argv[0]);
 
   // image list
-  string imglist = "300w_img_list.txt";
+  string imglist = argv[3];	// "300w_img_list.txt";
   // model config
   int IMG_DIM = 448;
-  string model_file = "Models/300W/network_300W_parts.caffemodel";
-  string model_def_file = "Models/300W/network_300W_parts.prototxt";
+  string model_file = argv[2];	// "Models/300W/network_300W_parts.caffemodel";
+  string model_def_file = argv[1];	// "Models/300W/network_300W_parts.prototxt";
 
   // use gpu
   int gpuDevice = 0;
@@ -48,8 +46,6 @@ int main(int argc, char** argv) {
 
   // Initialize a network
   Phase phase = TEST;
-  //net = caffe.Net(model_def_file, model_file, phase);
-//  shared_ptr<Net<double> > net(new caffe::Net<double>(model_file, phase));
   shared_ptr<Net<double> > net(new caffe::Net<double>(model_def_file, phase));
   net->CopyTrainedLayersFrom(model_file);
 
@@ -62,14 +58,16 @@ int main(int argc, char** argv) {
 	  pts_list.push_back(img_line + "pts");
   }
 
+  /* Face Detection */
+  cv::CascadeClassifier cascade;
+  cascade.load( "OpenCV_Cascades/haarcascade_frontalface_default.xml" ) ;
+
   // show result
   int vis_result = 1;
 
   size_t num = img_list.size();
   std::vector<cv::Mat> detected_points(num, cv::Mat(68, 2, CV_64FC1, 0.0));
   std::vector<cv::Mat> ground_truth(num, cv::Mat(68, 2, CV_64FC1, 0.0));
-//  cv::Mat detected_points({68, 2, num}, CV_64FC1, 0);
-//  cv::Mat ground_truth({68, 2, num}, CV_64FC1, 0);
   for (size_t j = 0; j < num; j++) {
 
 	  std::cout << j+1 << '/' << num << std::endl;
@@ -80,14 +78,40 @@ int main(int argc, char** argv) {
 	  if (1) {
 		  double sh_scale = 0.1;
 		  std::vector<string> rct_lines = TextRead(rct_list[j]);
-		  std::stringstream ss_rct_line(rct_lines[0]);	// only one line in this file
-		  ss_rct_line >> rct[0] >> rct[1] >> rct[2] >> rct[3];
+		  if (!rct_lines.empty()) {
+			  std::stringstream ss_rct_line(rct_lines[0]);	// only one line in this file
+			  ss_rct_line >> rct[0] >> rct[1] >> rct[2] >> rct[3];
+		  }
+		  else {
+			  std::cerr << "Warning: .rct file not found! Using OpenCV's face detector..." << std::endl;
+			  std::vector<cv::Rect> faces;
+			  cascade.detectMultiScale( src_img, faces, 1.1,
+			                            2, 0|cv::CASCADE_SCALE_IMAGE, cv::Size(30, 30) );
+			  if (faces.empty()) {
+				  std::cerr << "Warning:    OpenCV could not find a face! Skipping to the next image" << std::endl;
+				  break;
+			  }
+			  // use the largest face found
+			  int largest_width = 0;
+			  int largest_width_idx = 0;
+			  size_t f = 0;
+			  for (; f<faces.size(); f++) {
+				  if (faces[f].width > largest_width) {
+					  largest_width = faces[f].width;
+					  largest_width_idx = f;
+				  }
+			  }
+			  rct[0] = faces[largest_width_idx].x;
+			  rct[1] = faces[largest_width_idx].y;
+			  rct[2] = faces[largest_width_idx].x + faces[largest_width_idx].width;
+			  rct[3] = faces[largest_width_idx].y + faces[largest_width_idx].height;
+		  }
 		  src_rct = rct;
 
 		  double row = src_img.rows;
 		  double col = src_img.cols;
 		  double w = rct[2] - rct[0];
-		  double h = rct[3] - rct[2];
+		  double h = rct[3] - rct[1];
 		  std::vector<double> rct_float(4);
 		  rct_float[0] = rct[0] - sh_scale*w;
 		  rct_float[1] = rct[1] - sh_scale*h;
@@ -120,32 +144,24 @@ int main(int argc, char** argv) {
 	  }
 
 	  /* */
-	  cv::imshow("1", src_img);
 	  cv::Mat im = src_img(cv::Range(rct[1], rct[3]), cv::Range(rct[0], rct[2])).clone();
-	  cv::imshow("2", im);
 	  cv::resize(im, im, cv::Size(IMG_DIM, IMG_DIM));	// TODO: try different interpolation methods
-	  cv::imshow("3", im);
 
-//	  cv::Mat images({IMG_DIM, IMG_DIM, 3, 1}, CV_32FC1, 0);
 	  //TODO: try permute channels (currently passing as it is, whatever it is)
 	  //%im_data = im(:, :, [3, 2, 1]);  % permute channels from RGB to BGR
 	  //%images(:,:,:, 1) = permute(im_data, [2, 1, 3]); // passing GBR
 
-//	  Blob<double>* input_layer = net->input_blobs()[0];
-//	  input_layer->Reshape(IMG_DIM, IMG_DIM, 3, 1);
-//	  net->Reshape();
-
 	  std::vector<cv::Mat> input_channels;
 	  WrapInputLayer(net, &input_channels);
 	  Preprocess(net, im, &input_channels);
-//	  im.convertTo(im, CV_64F);
-//	  cv::imshow("4", im);
 
+	  std::chrono::steady_clock::time_point tic = std::chrono::steady_clock::now();
 	  net->Forward();
+	  std::chrono::steady_clock::time_point toc = std::chrono::steady_clock::now();
 
 //	  std::vector<string> bnames = net->blob_names();
-//	  std::cout << OutputOfLayerByName(net, "downsample_data") << std::endl;
-	  std::cout << OutputOfLayerByName(net, "theta") << std::endl;
+//	  std::cout << OutputOfBlobByName(net, "downsample_data") << std::endl;
+	  std::cout << OutputOfBlobByName(net, "theta") << std::endl;
 
 	  /* Copy the output layer to a std::vector */
 	  Blob<double>* output_layer = net->output_blobs()[0];
@@ -166,13 +182,16 @@ int main(int argc, char** argv) {
 		  fea[1] = (output[p+1] + 1) * IMG_DIM / 2;
 		  fea[0] = fea[0] * scale_x + rct[0];
 		  fea[1] = fea[1] * scale_y + rct[1];
-//		  detected_points[j].at<double>(p/2, 0) = fea[0];
-//		  detected_points[j].at<double>(p/2, 1) = fea[1];
 
 //		  std::vector<double> rea(2);
 //		  rea[0] = ground_truth[j].at<double>(p/2, 0);
 //		  rea[1] = ground_truth[j].at<double>(p/2, 1);//
 //		  std::cout << "Err" << p << ": " << std::sqrt( std::pow(rea[0]-fea[0], 2) + std::pow(rea[1]-fea[1], 2) ) << std::endl;
+#ifndef REALIGN_PTS
+		  detected_points[j].at<double>(p/2, 0) = fea[0];
+		  detected_points[j].at<double>(p/2, 1) = fea[1];
+	  }
+#else
 
 		  if ((0 <= p && p <= 32)
 				  || (52 <= p && p <= 60)
@@ -195,25 +214,29 @@ int main(int argc, char** argv) {
 		  detected_points[j].at<double>(d, 0) = pre_pts2.at<double>(d-27,0);
 		  detected_points[j].at<double>(d, 1) = pre_pts2.at<double>(d-27,1);
 	  }
+#endif
 	  
 	  /* show results */
 	  if (vis_result) {
 		  double w = src_rct[2]-src_rct[0]+1.0;
 		  double h = src_rct[3]-src_rct[1]+1.0;
 		  int l_w = 2;	//std::max((int)round(w/100), 3);
-		  int p_w = 3; 	//std::max(5, (int)round(w/15));
+		  int p_w = 2; 	//std::max(5, (int)round(w/15));
 
 		  cv::Mat src_img2 = src_img;
 		  cv::rectangle(src_img2, cv::Rect(src_rct[0], src_rct[1], w, h), cv::Scalar(0), l_w);
 		  // draw pre pts
 		  for (size_t c=0; c<68; c++) {
-			  cv::circle(src_img2, cv::Point(detected_points[j].at<double>(c, 0), detected_points[j].at<double>(c, 1)), p_w, cv::Scalar(0,255,0), -1);
+			  cv::circle(src_img2, cv::Point(detected_points[j].at<double>(c, 0), detected_points[j].at<double>(c, 1)), p_w+1, cv::Scalar(0,255,0), -1);
 			  cv::circle(src_img2, cv::Point(ground_truth[j].at<double>(c, 0), ground_truth[j].at<double>(c, 1)), p_w, cv::Scalar(0,0,255), -1);
 		  }
 
-		  cv::imshow("4", src_img2);
+		  cv::namedWindow("Output", cv::WINDOW_NORMAL);
+		  cv::imshow("Output", src_img2);
 		  cv::waitKey(0);
 	  }
+
+	  std::cout << "time(ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(toc - tic).count() <<std::endl;
   }
 
 }
@@ -271,8 +294,6 @@ void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img,
 	else
 		sample_resized.convertTo(sample_float, CV_64FC1);
 
-	cv::imshow("4", sample_float);
-
 //	cv::Mat sample_normalized;
 //	cv::subtract(sample_float, mean_, sample_normalized);
 //	sample_normalized = sample_resized;
@@ -290,13 +311,14 @@ void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img,
 }
 
 template <typename Dtype>
-string OutputOfLayerByName(shared_ptr<Net<Dtype> > net_, const string& layer_name)
+string OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
 {
-	shared_ptr<Blob<Dtype> > blob = net_->blob_by_name(layer_name);
+	shared_ptr<Blob<Dtype> > blob = net_->blob_by_name(blob_name);
 	const Dtype* begin = blob->cpu_data();
 	const Dtype* end = begin + blob->channels();
 	std::vector<Dtype> v(begin, end);
 	std::stringstream ss;
+	ss << blob_name << ": ";
 	for(size_t i = 0; i < v.size(); ++i)
 	{
 		if(i != 0)
@@ -313,6 +335,7 @@ std::vector<string> TextRead(string filename)
 	std::ifstream ifs(filename);
 	if (!ifs.is_open()) {
 		std::cerr << "Error opening file: " << filename << std::endl;
+		return vector<string>();
 	}
 
 	std::vector<string> lines;

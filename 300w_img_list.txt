@@ -1,3 +1,7 @@
 sample_images/300W/image_0001.jpg
 sample_images/300W/image_0024.jpg
 sample_images/300W/image_0152.jpg
+sample_images/AFLW/image00002_07136.jpg
+sample_images/AFLW/image00010_07171.jpg
+sample_images/AFLW/image00081_14921.jpg
+sample_images/AFLW/image00120_00010.jpg
