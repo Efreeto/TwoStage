@@ -94,6 +94,8 @@
 								<option id="gnu.cpp.compiler.option.include.paths.1550559061" name="Include paths (-I)" superClass="gnu.cpp.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
 									<listOptionValue builtIn="false" value="/usr/local/cuda-8.0/include"/>
 									<listOptionValue builtIn="false" value="/home/w80053412/workspace/Face_Alignment_Two_Stage_Re-initialization/caffe_build/install/include"/>
+									<listOptionValue builtIn="false" value="/home/w80053412/workspace/Face_Alignment_Two_Stage_Re-initialization/caffe/src"/>
+									<listOptionValue builtIn="false" value="/usr/include/hdf5/serial"/>
 								</option>
 								<option id="gnu.cpp.compiler.option.dialect.std.2137696628" name="Language standard" superClass="gnu.cpp.compiler.option.dialect.std" useByScannerDiscovery="true" value="gnu.cpp.compiler.dialect.c++11" valueType="enumerated"/>
 								<inputType id="cdt.managedbuild.tool.gnu.cpp.compiler.input.698711597" superClass="cdt.managedbuild.tool.gnu.cpp.compiler.input"/>
@@ -115,6 +117,7 @@
 									<listOptionValue builtIn="false" value="opencv_highgui"/>
 									<listOptionValue builtIn="false" value="opencv_imgproc"/>
 									<listOptionValue builtIn="false" value="opencv_imgcodecs"/>
+									<listOptionValue builtIn="false" value="opencv_objdetect"/>
 									<listOptionValue builtIn="false" value="caffe"/>
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.cpp.linker.input.870804118" superClass="cdt.managedbuild.tool.gnu.cpp.linker.input">
