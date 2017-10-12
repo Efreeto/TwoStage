@@ -162,10 +162,11 @@ int main(int argc, char** argv) {
 	  std::chrono::steady_clock::time_point toc = std::chrono::steady_clock::now();
 
 //	  std::vector<string> bnames = net->blob_names();
-//	  std::cout << OutputOfBlobByName(net, "downsample_data") << std::endl;
-	  cv::Mat thetaMat(OutputOfBlobByName(net, "theta"));
-	  thetaMat.reshape(0, 2);
+	  cv::imshow("data", ImageOfBlobByName(net, "data"));
+	  cv::imshow("downsample", ImageOfBlobByName(net, "downsample_data"));
+	  OutputOfBlobByName(net, "theta");
 	  cv::Mat stImg = ImageOfBlobByName(net, "st_data");
+  	  cv::waitKey(0);
 
 	  double error_sum = 0.0;
 #ifndef ST_DATA
@@ -313,7 +314,6 @@ void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img,
 //	cv::Mat sample_normalized;
 //	cv::subtract(sample_float, mean_, sample_normalized);
 //	sample_normalized = sample_resized;
-
 	cv::Mat sample_normalized = sample_float;
 
 	/* This operation will write the separate BGR planes directly to the
@@ -331,7 +331,7 @@ std::vector<Dtype> OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string
 {
 	shared_ptr<Blob<Dtype> > blob = net_->blob_by_name(blob_name);
 	const Dtype* begin = blob->cpu_data();
-	const Dtype* end = begin + blob->channels();
+	const Dtype* end = begin + blob->count();	// blob->shape(1)
 	std::vector<Dtype> v(begin, end);
 
 	std::stringstream ss;
@@ -353,10 +353,9 @@ cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name
 	const double* begin = blob->cpu_data();
 	const double* end = begin + blob->count();
 	std::vector<double> v(begin, end);
-	cv::Mat image(v);
-	image.convertTo(image, CV_8UC1);
-	cv::Mat image3 = image.reshape(3, 224);
-	return image3;
+	cv::Mat image(blob->shape(2), blob->shape(3), CV_64FC3, v.data());
+	image.convertTo(image, CV_8U);	// round
+	return image;
 }
 
 // mimic Matlab's textread()
