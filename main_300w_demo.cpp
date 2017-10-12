@@ -11,7 +11,8 @@
 #include <cmath>
 #include <chrono>
 
-//#define REALIGN_PTS	// uncomment to realign points with [1:17 27:31 38:42 18:26 32:37 43:68] to measure accuracy
+#define REALIGN_PTS	// uncomment to measure accuracy. This realigns landmarks with [1:17 27:31 38:42 18:26 32:37 43:68]
+//#define ST_DATA	// uncomment to use the network only until st_data. change in the '.prototxt' file is necessary
 
 using namespace caffe;  // NOLINT(build/namespaces)
 using std::string;
@@ -19,7 +20,8 @@ using std::string;
 void WrapInputLayer(shared_ptr<Net<double> > net_, std::vector<cv::Mat>* input_channels);
 void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img, std::vector<cv::Mat>* input_channels);
 template <typename Dtype>
-string OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name);
+std::vector<Dtype> OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name);
+cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name);
 std::vector<string> TextRead(string filename);
 
 int main(int argc, char** argv) {
@@ -161,7 +163,12 @@ int main(int argc, char** argv) {
 
 //	  std::vector<string> bnames = net->blob_names();
 //	  std::cout << OutputOfBlobByName(net, "downsample_data") << std::endl;
-	  std::cout << OutputOfBlobByName(net, "theta") << std::endl;
+	  cv::Mat thetaMat(OutputOfBlobByName(net, "theta"));
+	  thetaMat.reshape(0, 2);
+	  cv::Mat stImg = ImageOfBlobByName(net, "st_data");
+
+	  double error_sum = 0.0;
+#ifndef ST_DATA
 
 	  /* Copy the output layer to a std::vector */
 	  Blob<double>* output_layer = net->output_blobs()[0];
@@ -182,17 +189,11 @@ int main(int argc, char** argv) {
 		  fea[1] = (output[p+1] + 1) * IMG_DIM / 2;
 		  fea[0] = fea[0] * scale_x + rct[0];
 		  fea[1] = fea[1] * scale_y + rct[1];
-
-//		  std::vector<double> rea(2);
-//		  rea[0] = ground_truth[j].at<double>(p/2, 0);
-//		  rea[1] = ground_truth[j].at<double>(p/2, 1);//
-//		  std::cout << "Err" << p << ": " << std::sqrt( std::pow(rea[0]-fea[0], 2) + std::pow(rea[1]-fea[1], 2) ) << std::endl;
 #ifndef REALIGN_PTS
 		  detected_points[j].at<double>(p/2, 0) = fea[0];
 		  detected_points[j].at<double>(p/2, 1) = fea[1];
 	  }
 #else
-
 		  if ((0 <= p && p <= 32)
 				  || (52 <= p && p <= 60)
 				  || (74 <= p && p <= 82)) {	// %[1:17 27:31 38:42]
@@ -209,31 +210,46 @@ int main(int argc, char** argv) {
 	  for (size_t d=0; d<27; d++) {
 		  detected_points[j].at<double>(d, 0) = pre_pts1.at<double>(d,0);
 		  detected_points[j].at<double>(d, 1) = pre_pts1.at<double>(d,1);
+		  error_sum += std::sqrt(
+				  std::pow(detected_points[j].at<double>(d, 0) - ground_truth[j].at<double>(d, 0), 2)
+		  	  	  + std::pow(detected_points[j].at<double>(d, 1) - ground_truth[j].at<double>(d, 1), 2) );
 	  }
 	  for (size_t d=27; d<68; d++) {
 		  detected_points[j].at<double>(d, 0) = pre_pts2.at<double>(d-27,0);
 		  detected_points[j].at<double>(d, 1) = pre_pts2.at<double>(d-27,1);
+		  error_sum += std::sqrt(
+				  std::pow(detected_points[j].at<double>(d, 0) - ground_truth[j].at<double>(d, 0), 2)
+		  	  	  + std::pow(detected_points[j].at<double>(d, 1) - ground_truth[j].at<double>(d, 1), 2) );
 	  }
-#endif
+	  error_sum /= 68;	// output.size / 2.0
+	  std::cout << "MSE: " << error_sum << std::endl;
+#endif	// REALIGN_PTS
 	  
+#endif  // ST_DATA
 	  /* show results */
 	  if (vis_result) {
+		  cv::namedWindow("Input", cv::WINDOW_NORMAL);
+		  cv::imshow("Input", im);
+#ifndef ST_DATA
 		  double w = src_rct[2]-src_rct[0]+1.0;
 		  double h = src_rct[3]-src_rct[1]+1.0;
 		  int l_w = 2;	//std::max((int)round(w/100), 3);
 		  int p_w = 2; 	//std::max(5, (int)round(w/15));
 
-		  cv::Mat src_img2 = src_img;
-		  cv::rectangle(src_img2, cv::Rect(src_rct[0], src_rct[1], w, h), cv::Scalar(0), l_w);
+		  cv::Mat finalImg = src_img;
+		  cv::rectangle(finalImg, cv::Rect(src_rct[0], src_rct[1], w, h), cv::Scalar(0), l_w);
 		  // draw pre pts
 		  for (size_t c=0; c<68; c++) {
-			  cv::circle(src_img2, cv::Point(detected_points[j].at<double>(c, 0), detected_points[j].at<double>(c, 1)), p_w+1, cv::Scalar(0,255,0), -1);
-			  cv::circle(src_img2, cv::Point(ground_truth[j].at<double>(c, 0), ground_truth[j].at<double>(c, 1)), p_w, cv::Scalar(0,0,255), -1);
+			  cv::circle(finalImg, cv::Point(detected_points[j].at<double>(c, 0), detected_points[j].at<double>(c, 1)), p_w+1, cv::Scalar(0,255,0), -1);
+			  cv::circle(finalImg, cv::Point(ground_truth[j].at<double>(c, 0), ground_truth[j].at<double>(c, 1)), p_w, cv::Scalar(0,0,255), -1);
 		  }
 
 		  cv::namedWindow("Output", cv::WINDOW_NORMAL);
-		  cv::imshow("Output", src_img2);
-		  cv::waitKey(0);
+		  cv::imshow("Output", finalImg);
+#endif  // ST_DATA
+		  cv::namedWindow("ST_Image", cv::WINDOW_NORMAL);
+		  cv::imshow("ST_Image", stImg);
+	  	  cv::waitKey(0);
 	  }
 
 	  std::cout << "time(ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(toc - tic).count() <<std::endl;
@@ -311,12 +327,13 @@ void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img,
 }
 
 template <typename Dtype>
-string OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
+std::vector<Dtype> OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
 {
 	shared_ptr<Blob<Dtype> > blob = net_->blob_by_name(blob_name);
 	const Dtype* begin = blob->cpu_data();
 	const Dtype* end = begin + blob->channels();
 	std::vector<Dtype> v(begin, end);
+
 	std::stringstream ss;
 	ss << blob_name << ": ";
 	for(size_t i = 0; i < v.size(); ++i)
@@ -325,7 +342,21 @@ string OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
 			ss << ",";
 		ss << v[i];
 	}
-	return ss.str();
+	std::cout << ss.str() << std::endl;
+
+	return v;
+}
+
+cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name)
+{
+	shared_ptr<Blob<double> > blob = net_->blob_by_name(blob_name);
+	const double* begin = blob->cpu_data();
+	const double* end = begin + blob->count();
+	std::vector<double> v(begin, end);
+	cv::Mat image(v);
+	image.convertTo(image, CV_8UC1);
+	cv::Mat image3 = image.reshape(3, 224);
+	return image3;
 }
 
 // mimic Matlab's textread()
