@@ -20,7 +20,7 @@ using std::string;
 void WrapInputLayer(shared_ptr<Net<double> > net_, std::vector<cv::Mat>* input_channels);
 void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img, std::vector<cv::Mat>* input_channels);
 template <typename Dtype>
-std::vector<Dtype> OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name);
+std::string StringOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name);
 cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name);
 std::vector<string> TextRead(string filename);
 
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
 
   size_t num = img_list.size();
   std::vector<cv::Mat> detected_points(num, cv::Mat(68, 2, CV_64FC1, 0.0));
-  std::vector<cv::Mat> ground_truth(num, cv::Mat(68, 2, CV_64FC1, 0.0));
+  std::vector<cv::Mat> ground_truth(num, cv::Mat(108, 2, CV_64FC1, 0.0));
   for (size_t j = 0; j < num; j++) {
 
 	  std::cout << j+1 << '/' << num << std::endl;
@@ -163,10 +163,12 @@ int main(int argc, char** argv) {
 
 //	  std::vector<string> bnames = net->blob_names();
 	  cv::imshow("data", ImageOfBlobByName(net, "data"));
-	  cv::imshow("downsample", ImageOfBlobByName(net, "downsample_data"));
-	  OutputOfBlobByName(net, "theta");
+	  std::ofstream outfile("data.xml");
+	  outfile << StringOfBlobByName(net, "data");
+	  cv::imshow("downsample_data", ImageOfBlobByName(net, "downsample_data"));
+	  std::cout << StringOfBlobByName(net, "theta");
 	  cv::Mat stImg = ImageOfBlobByName(net, "st_data");
-  	  cv::waitKey(0);
+//  	  cv::waitKey(0);
 
 	  double error_sum = 0.0;
 #ifndef ST_DATA
@@ -327,7 +329,7 @@ void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img,
 }
 
 template <typename Dtype>
-std::vector<Dtype> OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
+std::string StringOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
 {
 	shared_ptr<Blob<Dtype> > blob = net_->blob_by_name(blob_name);
 	const Dtype* begin = blob->cpu_data();
@@ -335,16 +337,42 @@ std::vector<Dtype> OutputOfBlobByName(shared_ptr<Net<Dtype> > net_, const string
 	std::vector<Dtype> v(begin, end);
 
 	std::stringstream ss;
-	ss << blob_name << ": ";
-	for(size_t i = 0; i < v.size(); ++i)
-	{
-		if(i != 0)
-			ss << ",";
-		ss << v[i];
+	ss << blob_name << ": (";
+	for (int a = 0; a < blob->num_axes(); a++) {
+		if(a != 0)
+			ss << " x ";
+		ss << blob->shape(a);
 	}
-	std::cout << ss.str() << std::endl;
-
-	return v;
+	ss << ")\n";
+	if (blob->num_axes() <= 2) {	// 2D
+		int i = 0;
+		for(int y=0; y<blob->shape(-2); y++) {
+			for(int x=0; x<blob->shape(-1); x++) {
+				if(x != 0)
+					ss << ' ';
+				ss << v[i++];
+			}
+			ss << '\n';
+		}
+	}
+	else {	// 4D
+		int i = 0;
+		for(int n=0; n<blob->shape(-4); n++) {
+			ss << "Number: " << n << '\n';
+			for(int c=0; c<blob->shape(-3); c++) {
+				ss << "Channel: " << c << '\n';
+				for(int y=0; y<blob->shape(-2); y++) {
+					for(int x=0; x<blob->shape(-1); x++) {
+						if(x != 0)
+							ss << ' ';
+						ss << v[i++];
+					}
+					ss << '\n';
+				}
+			}
+		}
+	}
+	return ss.str();
 }
 
 cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name)
