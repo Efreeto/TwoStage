@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
   // image list
   string imglist = argv[3];	// "300w_img_list.txt";
   // model config
-  int IMG_DIM = 448;
+  int IMG_DIM = 480;	// ORG: 448
   string model_file = argv[2];	// "Models/300W/network_300W_parts.caffemodel";
   string model_def_file = argv[1];	// "Models/300W/network_300W_parts.prototxt";
 
@@ -54,9 +54,9 @@ int main(int argc, char** argv) {
   std::vector<string> img_list = TextRead(imglist);
   std::vector<string> rct_list, pts_list;
   for (size_t i=0; i< img_list.size(); i++) {
-	  img_list[i] = img_list[i].substr(0, img_list[i].size()-1);	// '\r' character is at the end
+//	  img_list[i] = img_list[i].substr(0, img_list[i].size()-1);	// '\r' character is at the end
 	  string img_line = img_list[i].substr(0, img_list[i].size()-3);
-	  rct_list.push_back(img_line + "rct");
+	  rct_list.push_back(img_line + "rct_dlib_cpu");
 	  pts_list.push_back(img_line + "pts");
   }
 
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
 
   size_t num = img_list.size();
   std::vector<cv::Mat> detected_points(num, cv::Mat(68, 2, CV_64FC1, 0.0));
-  std::vector<cv::Mat> ground_truth(num, cv::Mat(108, 2, CV_64FC1, 0.0));
+  std::vector<cv::Mat> ground_truth(num, cv::Mat(110, 2, CV_64FC1, 0.0));
   for (size_t j = 0; j < num; j++) {
 
 	  std::cout << j+1 << '/' << num << std::endl;
@@ -86,12 +86,13 @@ int main(int argc, char** argv) {
 		  }
 		  else {
 			  std::cerr << "Warning: .rct file not found! Using OpenCV's face detector..." << std::endl;
+			  continue;	// just skip when generating .theta files
 			  std::vector<cv::Rect> faces;
 			  cascade.detectMultiScale( src_img, faces, 1.1,
 			                            2, 0|cv::CASCADE_SCALE_IMAGE, cv::Size(30, 30) );
 			  if (faces.empty()) {
-				  std::cerr << "Warning:    OpenCV could not find a face! Skipping to the next image" << std::endl;
-				  break;
+				  std::cerr << "Warning: OpenCV could not find a face! Skipping to the next image" << std::endl;
+				  continue;
 			  }
 			  // use the largest face found
 			  int largest_width = 0;
@@ -136,7 +137,7 @@ int main(int argc, char** argv) {
 			  rct[3] = row;
 		  }
 		  std::vector<string> pts_lines = TextRead(pts_list[j]);
-		  for (size_t g=0; g<pts_lines.size(); g++) {
+		  for (size_t g=1; g<pts_lines.size(); g++) {	// g=1: skip the first line
 			  std::stringstream ss_pts_line(pts_lines[g]);
 			  std::vector<double> g_pts(2);
 			  ss_pts_line >> g_pts[0] >> g_pts[1];
@@ -163,12 +164,13 @@ int main(int argc, char** argv) {
 
 //	  std::vector<string> bnames = net->blob_names();
 	  cv::imshow("data", ImageOfBlobByName(net, "data"));
-	  std::ofstream outfile("data.xml");
-	  outfile << StringOfBlobByName(net, "data");
 	  cv::imshow("downsample_data", ImageOfBlobByName(net, "downsample_data"));
 	  std::cout << StringOfBlobByName(net, "theta");
 	  cv::Mat stImg = ImageOfBlobByName(net, "st_data");
-//  	  cv::waitKey(0);
+	  string img_line = img_list[j].substr(0, img_list[j].size()-3);
+	  std::ofstream outfile(img_line + "theta_cpu");
+	  outfile << StringOfBlobByName(net, "theta");
+
 
 	  double error_sum = 0.0;
 #ifndef ST_DATA
@@ -252,7 +254,7 @@ int main(int argc, char** argv) {
 #endif  // ST_DATA
 		  cv::namedWindow("ST_Image", cv::WINDOW_NORMAL);
 		  cv::imshow("ST_Image", stImg);
-	  	  cv::waitKey(0);
+	  	  cv::waitKey(1);
 	  }
 
 	  std::cout << "time(ms): " << std::chrono::duration_cast<std::chrono::milliseconds>(toc - tic).count() <<std::endl;
