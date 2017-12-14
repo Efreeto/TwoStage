@@ -21,6 +21,8 @@ void WrapInputLayer(shared_ptr<Net<double> > net_, std::vector<cv::Mat>* input_c
 void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img, std::vector<cv::Mat>* input_channels);
 template <typename Dtype>
 std::string StringOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name);
+template <typename Dtype>
+std::string StringOfBlob(shared_ptr<Blob<Dtype> > blob);
 cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name);
 std::vector<string> TextRead(string filename);
 
@@ -51,12 +53,20 @@ int main(int argc, char** argv) {
   shared_ptr<Net<double> > net(new caffe::Net<double>(model_def_file, phase));
   net->CopyTrainedLayersFrom(model_file);
 
+  // Export the pre-trained weights
+  size_t weight_size = net->params().size();
+  for (size_t i=0; i<weight_size; i++) {
+	  std::ofstream outfile(model_file.substr(0, model_file.size()-10) + "weights" + std::to_string(i));
+	  outfile << StringOfBlob(net->params()[i]);
+  }
+
   std::vector<string> img_list = TextRead(imglist);
   std::vector<string> rct_list, pts_list;
-  for (size_t i=0; i< img_list.size(); i++) {
+  for (size_t i=0; i<img_list.size(); i++) {
 //	  img_list[i] = img_list[i].substr(0, img_list[i].size()-1);	// '\r' character is at the end
 	  string img_line = img_list[i].substr(0, img_list[i].size()-3);
-	  rct_list.push_back(img_line + "rct_dlib_cpu");
+//	  rct_list.push_back(img_line + "rct_dlib_cpu");
+	  rct_list.push_back(img_line + "rct_landmark");
 	  pts_list.push_back(img_line + "pts");
   }
 
@@ -163,12 +173,12 @@ int main(int argc, char** argv) {
 	  std::chrono::steady_clock::time_point toc = std::chrono::steady_clock::now();
 
 //	  std::vector<string> bnames = net->blob_names();
-	  cv::imshow("data", ImageOfBlobByName(net, "data"));
-	  cv::imshow("downsample_data", ImageOfBlobByName(net, "downsample_data"));
+//	  cv::imshow("data", ImageOfBlobByName(net, "data"));
+//	  cv::imshow("downsample_data", ImageOfBlobByName(net, "downsample_data"));
 	  std::cout << StringOfBlobByName(net, "theta");
 	  cv::Mat stImg = ImageOfBlobByName(net, "st_data");
 	  string img_line = img_list[j].substr(0, img_list[j].size()-3);
-	  std::ofstream outfile(img_line + "theta_cpu");
+	  std::ofstream outfile(img_line + "theta");
 	  outfile << StringOfBlobByName(net, "theta");
 
 
@@ -333,20 +343,33 @@ void Preprocess(shared_ptr<Net<double> > net_, const cv::Mat& img,
 template <typename Dtype>
 std::string StringOfBlobByName(shared_ptr<Net<Dtype> > net_, const string& blob_name)
 {
-	shared_ptr<Blob<Dtype> > blob = net_->blob_by_name(blob_name);
+	return StringOfBlob(net_->blob_by_name(blob_name));
+}
+
+template <typename Dtype>
+std::string StringOfBlob(shared_ptr<Blob<Dtype> > blob)
+{
 	const Dtype* begin = blob->cpu_data();
 	const Dtype* end = begin + blob->count();	// blob->shape(1)
 	std::vector<Dtype> v(begin, end);
 
 	std::stringstream ss;
-	ss << blob_name << ": (";
+	ss.precision(10);
+	ss << "( ";
 	for (int a = 0; a < blob->num_axes(); a++) {
 		if(a != 0)
 			ss << " x ";
 		ss << blob->shape(a);
 	}
-	ss << ")\n";
-	if (blob->num_axes() <= 2) {	// 2D
+	ss << " )\n";
+	if (blob->num_axes() == 1) {    // 1D
+		for(int x=0; x<blob->count(); x++) {
+			if(x != 0)
+				ss << ' ';
+			ss << v[x];
+		}
+	}
+	else if (blob->num_axes() <= 2) {	// 2D
 		int i = 0;
 		for(int y=0; y<blob->shape(-2); y++) {
 			for(int x=0; x<blob->shape(-1); x++) {
@@ -382,9 +405,9 @@ cv::Mat ImageOfBlobByName(shared_ptr<Net<double> > net_, const string& blob_name
 	shared_ptr<Blob<double> > blob = net_->blob_by_name(blob_name);
 	const double* begin = blob->cpu_data();
 	const double* end = begin + blob->count();
-	std::vector<double> v(begin, end);
-	cv::Mat image(blob->shape(2), blob->shape(3), CV_64FC3, v.data());
-	image.convertTo(image, CV_8U);	// round
+	std::vector<double> vecd(begin, end);
+	std::vector<uchar> vecu(vecd.begin(), vecd.end());
+	cv::Mat image(blob->shape(2), blob->shape(3), CV_8UC3, vecu.data());
 	return image;
 }
 
